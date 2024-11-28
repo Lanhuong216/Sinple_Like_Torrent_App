@@ -51,7 +51,12 @@ def handle_client(conn,addr):
                 elif cmand=="peers":
                     file_name=msg.split(' + ')[1]
                     query={"filename":file_name}
-                    result=metadata.find(query, {"_id":0, "peerId":1, "peerPort":1, "orderInFile":1})
+                    result=metadata.find(query, {"_id":0, "peerId":1, "peerPort":1, "orderInFile":1, "filename":1})
+                    conn.send(dumps(list(result)).encode(FORMAT))
+                elif cmand=="handshake":
+                    file_name=msg.split(' + ')[1]
+                    query={"filename":file_name}
+                    result=metadata.find(query, {"_id":0, "peerId":1, "peerPort":1, "orderInFile":1, "piecehash":1, "piecesize":1, "filename":1})
                     conn.send(dumps(list(result)).encode(FORMAT))
                 else:
                     conn.send("[ERROR] Not found message!".encode(FORMAT))
@@ -65,9 +70,9 @@ def handle_admin_commands():
     while True:
         command = input("Server Command: ")
         if command == "list":
-            print("[ACTIVE CONNECTIONS] Active threads:")
+            print("[ACTIVE CONNECTIONS] Active peers:")
             for t in threading.enumerate():
-                if t.name.startswith('Thread'):
+                if t.name.startswith('Peer'):
                     print(f"- {t.name}")
         
         elif command == "clear":
@@ -103,9 +108,9 @@ def start():
 
         while True:
             conn, addr=server.accept()
-            thread=threading.Thread(target=handle_client,args=(conn,addr))
+            thread=threading.Thread(target=handle_client,args=(conn,addr),name=f"Peer {addr}")
             thread.start()
-            print(f"[ACTIVE CONNECTIONS] {len([t for t in threading.enumerate() if t.name.startswith('Thread')])}")
+            print(f"[ACTIVE CONNECTIONS] {len([t for t in threading.enumerate() if t.name.startswith('Peer')])}")
     except Exception as e:
         print(f"[ERROR] Server error: {e}")
     finally:

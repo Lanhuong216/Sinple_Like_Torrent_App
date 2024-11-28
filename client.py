@@ -3,14 +3,12 @@ import socket
 import sys
 import os
 import hashfile as hfile
-""" import mergefile as mfile """
 import splitfile as sfile
 import json
 import threading
-import time
-
+import mergefile as mfile
 PORT=12345
-SERVER=('192.168.1.8')
+SERVER=('192.168.1.6')
 ADDR= (SERVER, PORT)
 DISCONNECT_MESSAGE='!DISCONNECT'
 FORMAT='utf-8'
@@ -22,6 +20,7 @@ client=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client.connect(ADDR)
 IP=socket.gethostbyname(socket.gethostname())
 _, local_port=client.getsockname()
+
 class pieceInfo:
     def __init__(self, peerId, peerPort, filename,filesize, piecehash, piecesize, orderInFile):
         self.peerId=peerId
@@ -43,7 +42,7 @@ def send(msg):
     send_length+=b' '*(HEADER-len(send_length))
     client.send(send_length)
     client.send(message)
-    return (client.recv(2048).decode(FORMAT))
+    return (client.recv(20480).decode(FORMAT))
 
 def obj_dict(obj):
     return obj.__dict__
@@ -59,6 +58,7 @@ def datastring(file_path):
             print("File not found. Please enter a valid file path.")
     data_string=json.dumps(piecelist,default=obj_dict)
     return data_string
+
 def peer_server():
     """Set up a peer listener to accept connections from other peers."""
     peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -100,41 +100,50 @@ def handle_peer_peer(conn, addr):
                         cmand=msg.split(' + ')[0]   
                         if cmand=="request":
                             if len(piecelist)==0:
-                                conn.send(f"[ERROR] No such find found!".encode(FORMAT))
+                                conn.send(f"[ERROR] No such file found!".encode(FORMAT))
                                 continue
+
                             file_info=json.loads(msg.split(' + ')[1])
-                            list_piece_of_file= [i for i in piecelist if i.filename==file_info[0]]
-                            print(len(list_piece_of_file))
-                            if (len(list_piece_of_file)==0):
-                                conn.send(f"[ERROR] No such find found!".encode(FORMAT))
+                            
+                            file_name=file_info.split()[0]
+                            piece=file_info.split()[1]
+                            piece_exist=[i for i in piecelist if i.filename==file_name and str(i.orderInFile)==piece]
+                            if (len(piece_exist)==0):
+                                conn.send(f"[ERROR] No such file found!".encode(FORMAT))
                                 continue
-                            hashinfo=json.loads((send("peers + "+file_info[0])))
-                            for entry in hashinfo:
-                                piece_index = entry["orderInFile"]
-                                expected_hash = entry["piecehash"]
-                                
-                            """hashlist=[]
-                            class message_sent:
-                                def __init__(self, hashinfo, orderinfile, filename):
-                                    self.hashinfo=hashinfo
-                                    self.orderinfile=orderinfile
-                                    self.filename=filename 
-                            if (len(file_info)==1):
-                                for i in list_piece_of_file:
-                                    hashlist.append(message_sent(i.piecehash, i.orderInFile, i.filename))
-                            else:
-                                file_info=file_info[1:]
-                                print(list_piece_of_file[int(file_info[0])].piecehash) 
-                                for i in file_info:
-                                    try:
-                                        hashlist.append(message_sent(list_piece_of_file[int(i)].piecehash, list_piece_of_file[int(i)].orderInFile, list_piece_of_file[int(i)].filename))
-                                    except Exception as e:
-                                        print(f"[ERROR] {e}")
-                            data_sent=json.dumps(hashlist, default=obj_dict)
-                            conn.send(f"[PIECE HASHING INFO] {data_sent}".encode(FORMAT)) """
+                            hashinfo=json.loads((send("handshake + "+file_name)))    
+                            result=[] 
+                            for j in hashinfo:
+                                if (j["peerId"]==IP and j["peerPort"]==local_port and j["filename"]==file_name and str(j["orderInFile"])==piece):   
+                                    result.append(j)
+                                    break
+                            piece_name="chunk" + file_name + str(result[0]['orderInFile']) + ".txt"
+                            with open(piece_name, "rb") as f:
+                                    piece_data=f.read()
+                                    conn.send(f"{result[0]['piecesize']}".encode(FORMAT))
+                                    conn.sendall(piece_data)
+                                    print(f"[SUCCESSFULLY] Piece {piece} sent!")
+                        elif cmand=="merge":
+                            filename=msg.split(' + ')[1]
+                            hashinfo=json.loads((send("handshake + "+filename))) 
+                            total_piece=total_piece=hashinfo[len(hashinfo)-1]['orderInFile']+1
+                            merge=False
+                            print(filename)
+                            print(total_piece)
+                            for i in range(total_piece):
+                                piece_name=f"received_chunk{filename}{i}.txt"
+                                merge=os.path.isfile(piece_name)
+                                if merge==False:
+                                    conn.send("[ERROR] There aren't enough pieces to merge!".encode(FORMAT))
+                                    print("[ERROR] There aren't enough pieces to merge!")
+                                    break
+                            if merge==True:
+                                mfile.mergefile(filename,total_piece,524288)
+                                conn.send(f"[MERGE FILE] {filename} successfully!".encode(FORMAT))
+                        elif cmand=="send":
+                            conn.send("[SEND RECEIVED]".encode(FORMAT))
+
                     print(f'[RECEIVED MESSAGE] {msg}')
-                    conn.send("[MESSAGE RECEIVED]".encode(FORMAT))
-                    connected = False
             except Exception as e:
                 print(f"[ERROR] Peer communication error: {e}")
         """ try:
@@ -150,7 +159,11 @@ def send_peer(peer_socket, msg):
     send_length+=b' '*(HEADER-len(send_length))
     peer_socket.send(send_length)
     peer_socket.send(message)
-    print(peer_socket.recv(2048).decode(FORMAT))
+    return (peer_socket.recv(2048).decode(FORMAT))
+
+def verify(expected_hash,piece_name):
+    piece_hash=hfile.compute_file_hash(piece_name, algorithm='sha1')
+    return piece_hash==expected_hash
 
 def handshake(command):
     """Initiate a connection to another peer."""
@@ -171,17 +184,93 @@ def handshake(command):
         while connected:
             msg=input("Peer request: ").split()
             if (msg[0]=="request"):
-                send_peer(peer_socket, "request + "+json.dumps(msg[1:]))
+                if len(msg)>2:
+                    for i in range(len(msg)):
+                        if i+2==len(msg): 
+                            break
+                        message=str(msg[1])+" " +str(msg[i+2])
+                        piece_size=(send_peer(peer_socket, "request + "+json.dumps(message)))
+                        if not "[ERROR]" in piece_size:
+                            piece_size=int(piece_size)
+                                    # Read the actual piece data
+                            piece_data = b""
+                            while len(piece_data) < piece_size:
+                                buffer = peer_socket.recv(min(1024, piece_size - len(piece_data)))
+                                if not buffer:
+                                    break
+                                piece_data += buffer
+                                    # Save the piece data to a file
+                            piece_name = f"received_chunk{msg[1]}{msg[i + 2]}.txt"
+                            infofile=json.loads((send("handshake + "+msg[1])))
+                            result=[]
+                            for j in infofile:
+                                if (j["filename"]==msg[1] and str(j["orderInFile"])==msg[i+2]):   
+                                    result.append(j)
+                                    break
+                            expected_hash=result[0]['piecehash']
+                            with open(piece_name, "wb") as f:
+                                f.write(piece_data)
+                                if verify(expected_hash, piece_name):
+                                    print(f"[SUCCESSFULLY] Received piece {i} and saved as {piece_name}")
+                                else:
+                                    print(f"[ERROR] Piece verification failed")
+                                    break
+                        else:
+                            print(piece_size)
+                else:
+                    #Check out total piece of file
+                    infofile=json.loads((send("handshake + "+msg[1])))
+                    total_piece=infofile[len(infofile)-1]['orderInFile']+1
+                    piece_size=""
+                    #Write file
+                    for i in range(total_piece):
+                        message=str(msg[1])+" " +str(i) 
+                        piece_size=(send_peer(peer_socket, "request + "+json.dumps(message)))
+                        if not "[ERROR]" in piece_size:
+                            piece_size=int(piece_size)
+                                    # Read the actual piece data
+                            piece_data = b""
+                            while len(piece_data) < piece_size:
+                                buffer = peer_socket.recv(min(1024, piece_size - len(piece_data)))
+                                if not buffer:
+                                    break
+                                piece_data += buffer
+                                    # Save the piece data to a file
+                            piece_name = f"received_chunk{msg[1]}{i}.txt"
+                            infofile=json.loads((send("handshake + "+msg[1])))
+                            result=[]
+                            for j in infofile:
+                                if (j["filename"]==msg[1] and str(j["orderInFile"])==str(i)):   
+                                    result.append(j)
+                                    break
+                            expected_hash=result[0]['piecehash']
+                            with open(piece_name, "wb") as f:
+                                f.write(piece_data)
+                                if verify(expected_hash, piece_name):
+                                    print(f"[SUCCESSFULLY] Received piece {i} and saved as {piece_name}")
+                                else:
+                                    print(f"[ERROR] Piece verification failed")
+                                    break
+                        else:
+                            print(piece_size)
+                    #Merge file
+                    merge=False
+                    for i in range(total_piece):
+                        merge=os.path.isfile(f"received_chunk{msg[1]}{i}.txt")
+                        print(merge)
+                    if merge==True:
+                        mfile.mergefile(msg[1], total_piece, 524288)
             elif (msg[0]=="disconnect"):
-                send_peer(peer_socket, DISCONNECT_MESSAGE)
+                print(send_peer(peer_socket, DISCONNECT_MESSAGE))
                 connected=False
                 break
-        
+            elif (msg[0]=="merge"):
+                print(send_peer(peer_socket, "merge + " +msg[1]))
+            elif (msg[0]=="send"):
+                print(send_peer(peer_socket, "send + " +msg[1]))
+        peer_socket.close() 
     except Exception as e:
         print(f"[ERROR] Handshake error: {e}")
-    """ finally:
-        peer_socket.close() """
-
 def main():
     command=sys.argv[1:]
     peer_server_thread = threading.Thread(target=peer_server, name="PeerServerThread")
@@ -200,4 +289,5 @@ def main():
         elif command[0]=="handshake":
             handshake(command[1])
         command=input().split()
+
 main()

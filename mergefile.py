@@ -1,20 +1,21 @@
 # Open original file for reconstruction
-fileM = open("5_SQLfinal.pdf", "wb")
- 
-# Manually enter total amount of "chunks"
-chunk = 0
-chunks = 4
-# Piece the file together using all chunks
-while chunk <= chunks:
-    fileName = "chunk" + str(chunk) + ".txt"
-    try: 
+def mergefile(filename, numberofchunks, piecesize):
+    fileM = open(f"received_{filename}", "wb")
+    # Manually enter total amount of "chunks"
+    chunk = 0
+    # Piece the file together using all chunks
+    while chunk <= numberofchunks:
+        fileName = "received_chunk" +filename + str(chunk) + ".txt"
+        try: 
+            
+            fileTemp = open(fileName, "rb")
+            byte = fileTemp.read(piecesize)
+            fileM.write(byte)
+            chunk += 1
+        except:
+            break
         
-        fileTemp = open(fileName, "rb")
-        byte = fileTemp.read(524288)
-        fileM.write(byte)
-        chunk += 1
-    except:
-        break
-    print(" - Chunk #" + str(chunk-1) + " done.")
- 
-fileM.close()
+    print(f"[MERGE FILE] {filename} successfully!")
+    fileM.close()
+
+#mergefile("5_SQL.pdf", 4, 524288)

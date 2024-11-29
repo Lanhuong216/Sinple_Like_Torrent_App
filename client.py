@@ -76,10 +76,13 @@ def peer_server():
             else:
                 print(f"[REJECTED CONNECTION] {addr} - Maximum connections reached.")
                 conn.send("[ERROR] Server busy. Try again later.".encode(FORMAT))
+                conn.send(DISCONNECT_MESSAGE)
                 conn.close()
+                break
         except Exception as e:
             print(f"[ERROR] Peer server error: {e}")
             break
+        
     peer_socket.close()
 
 def handle_peer_peer(conn, addr):
@@ -94,6 +97,7 @@ def handle_peer_peer(conn, addr):
                     if msg==DISCONNECT_MESSAGE:
                         print(f"[DISCONNECTED] Peer {addr} disconnected.")
                         conn.send(f'[DISCONNECTED] on {addr}'.encode(FORMAT))
+                        connection_semaphore.release()
                         connected=False
                         break
                     else:
@@ -142,15 +146,12 @@ def handle_peer_peer(conn, addr):
                                 conn.send(f"[MERGE FILE] {filename} successfully!".encode(FORMAT))
                         elif cmand=="send":
                             conn.send("[SEND RECEIVED]".encode(FORMAT))
+                        else:
+                            print("[ERROR] Unknown command.")
 
                     print(f'[RECEIVED MESSAGE] {msg}')
             except Exception as e:
                 print(f"[ERROR] Peer communication error: {e}")
-        """ try:
-         finally:
-            conn.close()
-            connection_semaphore.release()
-            print(f"[DISCONNECTED] Peer {addr} disconnected.") """
         
 def send_peer(peer_socket, msg):
     message=msg.encode(FORMAT)
@@ -268,6 +269,8 @@ def handshake(command):
                 print(send_peer(peer_socket, "merge + " +msg[1]))
             elif (msg[0]=="send"):
                 print(send_peer(peer_socket, "send + " +msg[1]))
+            else:
+                print("[ERROR] Unknown command.")
         peer_socket.close() 
     except Exception as e:
         print(f"[ERROR] Handshake error: {e}")
@@ -288,6 +291,8 @@ def main():
             print(send('peers + '+command[1]))
         elif command[0]=="handshake":
             handshake(command[1])
+        else:
+            print("[ERROR] Unknown command.")
         command=input().split()
 
 main()

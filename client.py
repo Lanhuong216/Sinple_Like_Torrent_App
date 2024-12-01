@@ -9,7 +9,7 @@ import threading
 import mergefile as mfile
 import ast
 PORT=5050
-SERVER=('192.168.43.26')
+SERVER=('192.168.2.6')
 ADDR= (SERVER, PORT)
 DISCONNECT_MESSAGE='!DISCONNECT'
 FORMAT='utf-8'
@@ -43,7 +43,7 @@ def send(msg):
     send_length+=b' '*(HEADER-len(send_length))
     client.send(send_length)
     client.send(message)
-    return (client.recv(20480).decode(FORMAT))
+    return (client.recv(20480000).decode(FORMAT))
 
 def obj_dict(obj):
     return obj.__dict__
@@ -169,7 +169,7 @@ def send_peer(peer_socket, msg):
     send_length+=b' '*(HEADER-len(send_length))
     peer_socket.send(send_length)
     peer_socket.send(message)
-    return (peer_socket.recv(2048).decode(FORMAT))
+    return (peer_socket.recv(20480000).decode(FORMAT))
 
 def verify(expected_hash,piece_name):
     piece_hash=hfile.compute_file_hash(piece_name, algorithm='sha1')
